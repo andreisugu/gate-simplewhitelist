@@ -17,7 +17,7 @@ An ultra-lightweight, high-performance whitelist plugin for the [Gate](https://g
 ### 1. Add the package to your Gate proxy
 
 ```bash
-go get github.com/username/gate-simplewhitelist
+go get github.com/andreisugu/gate-simplewhitelist
 ```
 
 ### 2. Register the plugin in your `main.go` / `gate.go`
@@ -26,7 +26,7 @@ go get github.com/username/gate-simplewhitelist
 package main
 
 import (
-	"github.com/username/gate-simplewhitelist"
+	"github.com/andreisugu/gate-simplewhitelist"
 	"go.minekube.com/gate/cmd/gate"
 	"go.minekube.com/gate/pkg/edition/java/proxy"
 )
@@ -79,18 +79,6 @@ ips = [
 | Command | Description |
 | :--- | :--- |
 | `/simplewhitelist reload` | Reloads `config/whitelist.toml` without restarting the proxy. |
-
----
-
-## Pelican / Pterodactyl Panel Integration
-
-If using the Gate Pelican Egg, add this package to your `GATE_PLUGINS` setting:
-
-```text
-github.com/username/gate-simplewhitelist
-```
-
-Pelican will automatically download, bundle, and compile the plugin directly into your proxy binary!
 
 ---
 
