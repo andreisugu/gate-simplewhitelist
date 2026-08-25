@@ -1,4 +1,4 @@
-module github.com/username/gate-simplewhitelist
+module github.com/andreisugu/gate-simplewhitelist
 
 go 1.26
 
