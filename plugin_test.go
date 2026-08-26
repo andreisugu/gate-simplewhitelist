@@ -20,22 +20,25 @@ func (a *mockAddr) String() string  { return a.addr }
 
 type mockPlayer struct {
 	proxy.Player
-	id         uuid.UUID
-	username   string
-	remoteAddr net.Addr
+	id          uuid.UUID
+	username    string
+	remoteAddr  net.Addr
+	permissions map[string]bool
 }
 
 func newMockPlayer(username string, id uuid.UUID, ip string) *mockPlayer {
 	return &mockPlayer{
-		id:         id,
-		username:   username,
-		remoteAddr: &mockAddr{addr: ip},
+		id:          id,
+		username:    username,
+		remoteAddr:  &mockAddr{addr: ip},
+		permissions: make(map[string]bool),
 	}
 }
 
-func (m *mockPlayer) ID() uuid.UUID         { return m.id }
-func (m *mockPlayer) Username() string     { return m.username }
-func (m *mockPlayer) RemoteAddr() net.Addr { return m.remoteAddr }
+func (m *mockPlayer) ID() uuid.UUID                   { return m.id }
+func (m *mockPlayer) Username() string               { return m.username }
+func (m *mockPlayer) RemoteAddr() net.Addr           { return m.remoteAddr }
+func (m *mockPlayer) HasPermission(p string) bool     { return m.permissions[p] }
 
 func TestSimpleWhitelistEvaluation(t *testing.T) {
 	nicks := map[string]struct{}{
@@ -59,9 +62,12 @@ func TestSimpleWhitelistEvaluation(t *testing.T) {
 		kickReason: &c.Text{Content: "Denied"},
 	})
 
-	isAllowed := func(p proxy.Player) bool {
+	isAllowed := func(p *mockPlayer) bool {
 		st := state.Load()
 		if !st.enabled {
+			return true
+		}
+		if p.HasPermission("simplewhitelist.bypass") {
 			return true
 		}
 		if _, ok := st.nicks[strings.ToLower(p.Username())]; ok {
@@ -116,7 +122,14 @@ func TestSimpleWhitelistEvaluation(t *testing.T) {
 		t.Errorf("Expected Stranger2 allowed by CIDR range")
 	}
 
-	// Unlisted player
+	// Bypass permission match
+	bypassPlayer := newMockPlayer("AdminUser", randomUUID, "99.99.99.99:5555")
+	bypassPlayer.permissions["simplewhitelist.bypass"] = true
+	if !isAllowed(bypassPlayer) {
+		t.Errorf("Expected AdminUser allowed by simplewhitelist.bypass permission")
+	}
+
+	// Unlisted player without permission
 	if isAllowed(newMockPlayer("Hacker", randomUUID, "123.45.67.89:5555")) {
 		t.Errorf("Expected Hacker denied")
 	}

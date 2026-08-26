@@ -150,6 +150,11 @@ var Plugin = proxy.Plugin{
 				return
 			}
 
+			// 0. Permission bypass check (simplewhitelist.bypass or *)
+			if e.Player().HasPermission("simplewhitelist.bypass") {
+				return
+			}
+
 			// 1. O(1) Nick check
 			if _, ok := st.nicks[strings.ToLower(e.Player().Username())]; ok {
 				return
@@ -186,20 +191,37 @@ var Plugin = proxy.Plugin{
 			e.Deny(st.kickReason)
 		})
 
-		// In-game /simplewhitelist reload command
-		p.Command().Register(
-			brigodier.Literal("simplewhitelist").
+		// Admin command builder with permission requirement (simplewhitelist.admin)
+		buildAdminCmd := func(alias string) brigodier.LiteralNodeBuilder {
+			return brigodier.Literal(alias).
+				Requires(command.Requires(func(c *command.RequiresContext) bool {
+					return c.Source.HasPermission("simplewhitelist.admin")
+				})).
+				Executes(command.Command(func(cmdCtx *command.Context) error {
+					st := state.Load()
+					status := "§cDisabled"
+					if st.enabled {
+						status = "§aEnabled"
+					}
+					return cmdCtx.Source.SendMessage(&c.Text{
+						Content: fmt.Sprintf("§b[SimpleWhitelist] §7Status: %s §7(Nicks: §f%d§7, UUIDs: §f%d§7, IPs: §f%d§7)\n§7Use §f/%s reload §7to reload config.",
+							status, len(st.nicks), len(st.uuids), len(st.ips)+len(st.ipNets), alias),
+					})
+				})).
 				Then(brigodier.Literal("reload").
 					Executes(command.Command(func(cmdCtx *command.Context) error {
 						if err := loadConfig(); err != nil {
-							return cmdCtx.Source.SendMessage(&c.Text{Content: fmt.Sprintf("Reload failed: %v", err)})
+							return cmdCtx.Source.SendMessage(&c.Text{Content: fmt.Sprintf("§c[SimpleWhitelist] Reload failed: %v", err)})
 						}
-						return cmdCtx.Source.SendMessage(&c.Text{Content: "SimpleWhitelist reloaded successfully!"})
+						return cmdCtx.Source.SendMessage(&c.Text{Content: "§a[SimpleWhitelist] Configuration reloaded successfully!"})
 					})),
-				),
-		)
+				)
+		}
 
-		log.Info("SimpleWhitelist loaded (nicks, uuids, ips)")
+		p.Command().Register(buildAdminCmd("simplewhitelist"))
+		p.Command().Register(buildAdminCmd("swl"))
+
+		log.Info("SimpleWhitelist loaded (nicks, uuids, ips, permissions enabled)")
 		return nil
 	},
 }
