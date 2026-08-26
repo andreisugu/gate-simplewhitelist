@@ -1,0 +1,28 @@
+# =============================================================================
+#                        Simple Whitelist Configuration
+# =============================================================================
+# Ultra-lightweight whitelist for Gate proxy: lock-free, zero CPU/RAM overhead.
+
+# Set to true to block anyone not listed in nicks, uuids, or ips below.
+enabled = true
+
+# Disconnect message shown to unwhitelisted players.
+kick_message = "&cYou are not whitelisted on this server!"
+
+# Allowed player nicknames (case-insensitive).
+nicks = [
+    "Steve",
+    "Alex",
+]
+
+# Allowed player UUIDs.
+uuids = [
+    # "069a79f4-44e9-4726-a5be-fca90e38aaf5",
+]
+
+# Allowed IP addresses or CIDR subnets.
+ips = [
+    # "127.0.0.1",
+    # "192.168.1.50",
+    # "10.0.0.0/24",
+]
