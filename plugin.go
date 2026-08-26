@@ -8,7 +8,7 @@ import (
 	"go.minekube.com/gate/pkg/edition/java/proxy"
 )
 
-// Plugin is the ultra-lightweight, zero-fluff simple whitelist & blacklist plugin for Gate proxy.
+// Plugin is the ultra-lightweight, zero-fluff simple whitelist plugin for Gate proxy.
 var Plugin = proxy.Plugin{
 	Name: "SimpleWhitelist",
 	Init: func(ctx context.Context, p *proxy.Proxy) error {
@@ -16,7 +16,7 @@ var Plugin = proxy.Plugin{
 		mgr := NewManager("config")
 
 		if err := mgr.Load(); err != nil {
-			log.Error(err, "Failed to load simple whitelist & blacklist configuration")
+			log.Error(err, "Failed to load simple whitelist configuration")
 			return err
 		}
 
@@ -27,15 +27,7 @@ var Plugin = proxy.Plugin{
 			}
 			pl := e.Player()
 
-			// 1. Blacklist evaluation (first)
-			if !pl.HasPermission("simpleblacklist.bypass") {
-				if blacklisted, reason := mgr.IsBlacklisted(pl.Username(), pl.ID(), pl.RemoteAddr()); blacklisted {
-					e.Deny(reason)
-					return
-				}
-			}
-
-			// 2. Whitelist evaluation (second)
+			// Whitelist evaluation (respects simplewhitelist.bypass permission)
 			if !pl.HasPermission("simplewhitelist.bypass") {
 				if whitelisted, reason := mgr.IsWhitelisted(pl.Username(), pl.ID(), pl.RemoteAddr()); !whitelisted {
 					e.Deny(reason)
@@ -44,10 +36,10 @@ var Plugin = proxy.Plugin{
 			}
 		})
 
-		// Register In-Game Commands: /whitelist, /swl, /blacklist, /sbl
+		// Register In-Game Commands: /whitelist, /simplewhitelist, /swl
 		RegisterCommands(p, mgr)
 
-		log.Info("SimpleWhitelist & SimpleBlacklist loaded (nicks, uuids, ips, in-game management active)")
+		log.Info("SimpleWhitelist loaded (nicks, uuids, ips, in-game management active)")
 		return nil
 	},
 }

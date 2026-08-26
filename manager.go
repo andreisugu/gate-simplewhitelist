@@ -25,7 +25,7 @@ const (
 	TargetCIDR TargetType = "CIDR"
 )
 
-// ListConfig represents the TOML file structure for whitelist and blacklist.
+// ListConfig represents the TOML file structure for whitelist.
 type ListConfig struct {
 	Enabled     bool     `toml:"enabled"`
 	KickMessage string   `toml:"kick_message"`
@@ -70,61 +70,27 @@ uuids = []
 ips = []
 `
 
-const defaultBlacklistTemplate = `# =============================================================================
-#                        Simple Blacklist Configuration
-# =============================================================================
-# Set to true to block anyone listed in nicks, uuids, or ips below.
-enabled = true
-
-# Disconnect message shown to blacklisted players.
-kick_message = "&cYou are blacklisted from this server!"
-
-# Blacklisted player nicknames (case-insensitive).
-nicks = []
-
-# Blacklisted player UUIDs.
-uuids = []
-
-# Blacklisted IP addresses or CIDR subnets.
-ips = []
-`
-
-// Manager handles concurrent in-memory caching and persistent TOML storage for whitelist & blacklist.
+// Manager handles concurrent in-memory caching and persistent TOML storage for whitelist.
 type Manager struct {
-	whitelistPath string
-	blacklistPath string
-	mu            sync.Mutex
-
+	whitelistPath  string
+	mu             sync.Mutex
 	whitelistState atomic.Pointer[ListState]
-	blacklistState atomic.Pointer[ListState]
-
-	legacyCodec *legacy.Legacy
+	legacyCodec    *legacy.Legacy
 }
 
 // NewManager initializes a Manager instance.
 func NewManager(configDir string) *Manager {
 	return &Manager{
 		whitelistPath: filepath.Join(configDir, "whitelist.toml"),
-		blacklistPath: filepath.Join(configDir, "blacklist.toml"),
 		legacyCodec:   &legacy.Legacy{Char: legacy.AmpersandChar},
 	}
 }
 
-// Load reads whitelist.toml and blacklist.toml from disk.
+// Load reads whitelist.toml from disk.
 func (m *Manager) Load() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if err := m.loadWhitelistLocked(); err != nil {
-		return fmt.Errorf("failed to load whitelist: %w", err)
-	}
-	if err := m.loadBlacklistLocked(); err != nil {
-		return fmt.Errorf("failed to load blacklist: %w", err)
-	}
-	return nil
-}
-
-func (m *Manager) loadWhitelistLocked() error {
 	if _, err := os.Stat(m.whitelistPath); os.IsNotExist(err) {
 		_ = os.MkdirAll(filepath.Dir(m.whitelistPath), 0o755)
 		_ = os.WriteFile(m.whitelistPath, []byte(defaultWhitelistTemplate), 0o644)
@@ -132,35 +98,15 @@ func (m *Manager) loadWhitelistLocked() error {
 
 	data, err := os.ReadFile(m.whitelistPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to read whitelist file: %w", err)
 	}
 
 	var cfg ListConfig
 	if err := toml.Unmarshal(data, &cfg); err != nil {
-		return err
+		return fmt.Errorf("failed to parse whitelist.toml: %w", err)
 	}
 
 	m.whitelistState.Store(m.compileState(&cfg))
-	return nil
-}
-
-func (m *Manager) loadBlacklistLocked() error {
-	if _, err := os.Stat(m.blacklistPath); os.IsNotExist(err) {
-		_ = os.MkdirAll(filepath.Dir(m.blacklistPath), 0o755)
-		_ = os.WriteFile(m.blacklistPath, []byte(defaultBlacklistTemplate), 0o644)
-	}
-
-	data, err := os.ReadFile(m.blacklistPath)
-	if err != nil {
-		return err
-	}
-
-	var cfg ListConfig
-	if err := toml.Unmarshal(data, &cfg); err != nil {
-		return err
-	}
-
-	m.blacklistState.Store(m.compileState(&cfg))
 	return nil
 }
 
@@ -244,11 +190,6 @@ func (m *Manager) WhitelistState() *ListState {
 	return m.whitelistState.Load()
 }
 
-// BlacklistState returns the current active blacklist state.
-func (m *Manager) BlacklistState() *ListState {
-	return m.blacklistState.Load()
-}
-
 // SetWhitelistEnabled enables or disables the whitelist and saves to disk.
 func (m *Manager) SetWhitelistEnabled(enabled bool) error {
 	m.mu.Lock()
@@ -266,26 +207,6 @@ func (m *Manager) SetWhitelistEnabled(enabled bool) error {
 		return err
 	}
 	m.whitelistState.Store(m.compileState(cfg))
-	return nil
-}
-
-// SetBlacklistEnabled enables or disables the blacklist and saves to disk.
-func (m *Manager) SetBlacklistEnabled(enabled bool) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	st := m.blacklistState.Load()
-	cfg := &ListConfig{
-		Enabled:     enabled,
-		KickMessage: st.KickMessage,
-		Nicks:       st.RawNicks,
-		UUIDs:       st.RawUUIDs,
-		IPs:         st.RawIPs,
-	}
-	if err := m.saveFileLocked(m.blacklistPath, cfg); err != nil {
-		return err
-	}
-	m.blacklistState.Store(m.compileState(cfg))
 	return nil
 }
 
@@ -396,155 +317,6 @@ func (m *Manager) RemoveWhitelist(rawTarget string) (TargetType, string, bool, e
 	}
 	m.whitelistState.Store(m.compileState(cfg))
 	return tType, canonical, true, nil
-}
-
-// AddBlacklist adds an entry to the blacklist and persists to disk.
-func (m *Manager) AddBlacklist(rawTarget string) (TargetType, string, bool, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	tType, canonical := DetectTargetType(rawTarget)
-	st := m.blacklistState.Load()
-	cfg := &ListConfig{
-		Enabled:     st.Enabled,
-		KickMessage: st.KickMessage,
-		Nicks:       append([]string{}, st.RawNicks...),
-		UUIDs:       append([]string{}, st.RawUUIDs...),
-		IPs:         append([]string{}, st.RawIPs...),
-	}
-
-	alreadyExists := false
-	switch tType {
-	case TargetNick:
-		for _, n := range cfg.Nicks {
-			if strings.EqualFold(n, canonical) {
-				alreadyExists = true
-				break
-			}
-		}
-		if !alreadyExists {
-			cfg.Nicks = append(cfg.Nicks, canonical)
-		}
-	case TargetUUID:
-		for _, u := range cfg.UUIDs {
-			if strings.EqualFold(u, canonical) {
-				alreadyExists = true
-				break
-			}
-		}
-		if !alreadyExists {
-			cfg.UUIDs = append(cfg.UUIDs, canonical)
-		}
-	case TargetIP, TargetCIDR:
-		for _, ip := range cfg.IPs {
-			if strings.EqualFold(ip, canonical) {
-				alreadyExists = true
-				break
-			}
-		}
-		if !alreadyExists {
-			cfg.IPs = append(cfg.IPs, canonical)
-		}
-	}
-
-	if alreadyExists {
-		return tType, canonical, false, nil
-	}
-
-	if err := m.saveFileLocked(m.blacklistPath, cfg); err != nil {
-		return tType, canonical, false, err
-	}
-	m.blacklistState.Store(m.compileState(cfg))
-	return tType, canonical, true, nil
-}
-
-// RemoveBlacklist removes an entry from the blacklist and persists to disk.
-func (m *Manager) RemoveBlacklist(rawTarget string) (TargetType, string, bool, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	tType, canonical := DetectTargetType(rawTarget)
-	st := m.blacklistState.Load()
-	cfg := &ListConfig{
-		Enabled:     st.Enabled,
-		KickMessage: st.KickMessage,
-		Nicks:       make([]string, 0, len(st.RawNicks)),
-		UUIDs:       make([]string, 0, len(st.RawUUIDs)),
-		IPs:         make([]string, 0, len(st.RawIPs)),
-	}
-
-	removed := false
-	for _, n := range st.RawNicks {
-		if strings.EqualFold(n, canonical) {
-			removed = true
-		} else {
-			cfg.Nicks = append(cfg.Nicks, n)
-		}
-	}
-	for _, u := range st.RawUUIDs {
-		if strings.EqualFold(u, canonical) {
-			removed = true
-		} else {
-			cfg.UUIDs = append(cfg.UUIDs, u)
-		}
-	}
-	for _, ip := range st.RawIPs {
-		if strings.EqualFold(ip, canonical) {
-			removed = true
-		} else {
-			cfg.IPs = append(cfg.IPs, ip)
-		}
-	}
-
-	if !removed {
-		return tType, canonical, false, nil
-	}
-
-	if err := m.saveFileLocked(m.blacklistPath, cfg); err != nil {
-		return tType, canonical, false, err
-	}
-	m.blacklistState.Store(m.compileState(cfg))
-	return tType, canonical, true, nil
-}
-
-// IsBlacklisted checks if a player matches the blacklist.
-func (m *Manager) IsBlacklisted(username string, id uuid.UUID, remoteAddr net.Addr) (bool, c.Component) {
-	st := m.blacklistState.Load()
-	if st == nil || !st.Enabled {
-		return false, nil
-	}
-
-	// 1. Nick check
-	if _, ok := st.Nicks[strings.ToLower(username)]; ok {
-		return true, st.KickReason
-	}
-
-	// 2. UUID check
-	if _, ok := st.UUIDs[strings.ToLower(id.String())]; ok {
-		return true, st.KickReason
-	}
-
-	// 3. IP / Subnet check
-	if remoteAddr != nil && (len(st.IPs) > 0 || len(st.IPNets) > 0) {
-		host := remoteAddr.String()
-		if h, _, err := net.SplitHostPort(host); err == nil {
-			host = h
-		}
-		if pip := net.ParseIP(host); pip != nil {
-			for _, ip := range st.IPs {
-				if ip.Equal(pip) {
-					return true, st.KickReason
-				}
-			}
-			for _, netBlock := range st.IPNets {
-				if netBlock.Contains(pip) {
-					return true, st.KickReason
-				}
-			}
-		}
-	}
-
-	return false, nil
 }
 
 // IsWhitelisted checks if a player is allowed by the whitelist.

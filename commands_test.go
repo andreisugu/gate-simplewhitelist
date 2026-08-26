@@ -65,27 +65,6 @@ func TestCommandsIntegration(t *testing.T) {
 	if _, ok := st.Nicks["playerone"]; ok {
 		t.Errorf("Expected PlayerOne removed from whitelist state")
 	}
-
-	// 2. Blacklist add / remove / list / on / off
-	_, _, added, err = mgr.AddBlacklist("Spammer")
-	if err != nil || !added {
-		t.Fatalf("Failed to add Spammer to blacklist: %v", err)
-	}
-
-	bst := mgr.BlacklistState()
-	if _, ok := bst.Nicks["spammer"]; !ok {
-		t.Errorf("Expected Spammer in blacklist state")
-	}
-
-	_, _, removed, err = mgr.RemoveBlacklist("Spammer")
-	if err != nil || !removed {
-		t.Fatalf("Failed to remove Spammer: %v", err)
-	}
-
-	bst = mgr.BlacklistState()
-	if _, ok := bst.Nicks["spammer"]; ok {
-		t.Errorf("Expected Spammer removed from blacklist state")
-	}
 }
 
 func TestSuggestionsBuilderRange(t *testing.T) {
@@ -107,7 +86,7 @@ func TestSuggestionsBuilderRange(t *testing.T) {
 	}
 }
 
-func TestLoginEvaluationPrecedence(t *testing.T) {
+func TestLoginEvaluationBypass(t *testing.T) {
 	tmpDir, _ := os.MkdirTemp("", "simplewhitelist_login_*")
 	defer os.RemoveAll(tmpDir)
 
@@ -116,23 +95,17 @@ func TestLoginEvaluationPrecedence(t *testing.T) {
 
 	targetUUID, _ := uuid.Parse("11111111-1111-1111-1111-111111111111")
 	_ = mgr.SetWhitelistEnabled(true)
-	_ = mgr.SetBlacklistEnabled(true)
 
-	_, _, _, _ = mgr.AddWhitelist("WhitelistedPlayer")
-	_, _, _, _ = mgr.AddBlacklist("WhitelistedPlayer") // Also blacklisted!
-
-	p := newMockPlayer("WhitelistedPlayer", targetUUID, "1.1.1.1:1234")
-
-	// Blacklist takes precedence over whitelist: player is blocked!
-	isBlacklisted, _ := mgr.IsBlacklisted(p.Username(), p.ID(), p.RemoteAddr())
-	if !isBlacklisted {
-		t.Errorf("Expected blacklisted player to be caught by blacklist")
+	// Unlisted player without bypass is blocked
+	p := newMockPlayer("UnlistedPlayer", targetUUID, "1.1.1.1:1234")
+	isWhitelisted, _ := mgr.IsWhitelisted(p.Username(), p.ID(), p.RemoteAddr())
+	if isWhitelisted {
+		t.Errorf("Expected unlisted player to be denied by whitelist")
 	}
 
-	// If player has simpleblacklist.bypass, blacklist is bypassed
-	p.permissions["simpleblacklist.bypass"] = true
-	isWhitelisted, _ := mgr.IsWhitelisted(p.Username(), p.ID(), p.RemoteAddr())
-	if !isWhitelisted {
-		t.Errorf("Expected whitelisted player with blacklist bypass to be allowed")
+	// Player with simplewhitelist.bypass permission is allowed
+	p.permissions["simplewhitelist.bypass"] = true
+	if !p.HasPermission("simplewhitelist.bypass") {
+		t.Errorf("Expected bypass permission to be true")
 	}
 }

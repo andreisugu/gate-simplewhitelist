@@ -66,7 +66,7 @@ func TestTargetDetection(t *testing.T) {
 	}
 }
 
-func TestManagerWhitelistAndBlacklist(t *testing.T) {
+func TestManagerWhitelistPersistenceAndEvaluation(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "simplewhitelist_test_*")
 	if err != nil {
 		t.Fatal(err)
@@ -81,7 +81,7 @@ func TestManagerWhitelistAndBlacklist(t *testing.T) {
 	testUUID, _ := uuid.Parse("00000000-0000-0000-0000-000000000001")
 	otherUUID, _ := uuid.Parse("00000000-0000-0000-0000-000000000002")
 
-	// 1. Test In-Game Add/Remove Whitelist
+	// 1. In-game Add
 	_, _, added, err := mgr.AddWhitelist("Notch")
 	if err != nil || !added {
 		t.Fatalf("Failed to add Notch to whitelist: %v", err)
@@ -103,7 +103,7 @@ func TestManagerWhitelistAndBlacklist(t *testing.T) {
 		t.Fatalf("Expected duplicate Notch add to return false, got %v", added)
 	}
 
-	// Verify Whitelist evaluation
+	// 2. Verify Whitelist evaluation
 	pNotch := newMockPlayer("Notch", otherUUID, "1.1.1.1:1234")
 	if ok, _ := mgr.IsWhitelisted(pNotch.Username(), pNotch.ID(), pNotch.RemoteAddr()); !ok {
 		t.Errorf("Expected Notch whitelisted")
@@ -124,28 +124,7 @@ func TestManagerWhitelistAndBlacklist(t *testing.T) {
 		t.Errorf("Expected Hacker blocked by whitelist")
 	}
 
-	// 2. Test In-Game Add/Remove Blacklist
-	_, _, added, err = mgr.AddBlacklist("BadGuy")
-	if err != nil || !added {
-		t.Fatalf("Failed to add BadGuy to blacklist: %v", err)
-	}
-
-	_, _, added, err = mgr.AddBlacklist("10.0.0.0/24")
-	if err != nil || !added {
-		t.Fatalf("Failed to add 10.0.0.0/24 to blacklist: %v", err)
-	}
-
-	pBad := newMockPlayer("BadGuy", otherUUID, "1.1.1.1:1234")
-	if ok, _ := mgr.IsBlacklisted(pBad.Username(), pBad.ID(), pBad.RemoteAddr()); !ok {
-		t.Errorf("Expected BadGuy blocked by blacklist")
-	}
-
-	pSubnet := newMockPlayer("Someone", otherUUID, "10.0.0.45:1234")
-	if ok, _ := mgr.IsBlacklisted(pSubnet.Username(), pSubnet.ID(), pSubnet.RemoteAddr()); !ok {
-		t.Errorf("Expected 10.0.0.45 blocked by CIDR blacklist")
-	}
-
-	// 3. Test File Persistence across Manager reload
+	// 3. Verify File Persistence across Manager reload
 	mgr2 := NewManager(tmpDir)
 	if err := mgr2.Load(); err != nil {
 		t.Fatalf("Failed to reload from disk: %v", err)
@@ -153,9 +132,6 @@ func TestManagerWhitelistAndBlacklist(t *testing.T) {
 
 	if ok, _ := mgr2.IsWhitelisted(pNotch.Username(), pNotch.ID(), pNotch.RemoteAddr()); !ok {
 		t.Errorf("Expected Notch whitelisted after file reload")
-	}
-	if ok, _ := mgr2.IsBlacklisted(pBad.Username(), pBad.ID(), pBad.RemoteAddr()); !ok {
-		t.Errorf("Expected BadGuy blacklisted after file reload")
 	}
 
 	// 4. Test Remove
@@ -167,19 +143,8 @@ func TestManagerWhitelistAndBlacklist(t *testing.T) {
 		t.Errorf("Expected Notch blocked after removal")
 	}
 
-	_, _, removed, err = mgr2.RemoveBlacklist("BadGuy")
-	if err != nil || !removed {
-		t.Fatalf("Expected BadGuy removed: %v", err)
-	}
-	if ok, _ := mgr2.IsBlacklisted(pBad.Username(), pBad.ID(), pBad.RemoteAddr()); ok {
-		t.Errorf("Expected BadGuy no longer blacklisted after removal")
-	}
-
 	// Verify file exists
 	if _, err := os.Stat(filepath.Join(tmpDir, "whitelist.toml")); os.IsNotExist(err) {
 		t.Errorf("whitelist.toml does not exist")
-	}
-	if _, err := os.Stat(filepath.Join(tmpDir, "blacklist.toml")); os.IsNotExist(err) {
-		t.Errorf("blacklist.toml does not exist")
 	}
 }
