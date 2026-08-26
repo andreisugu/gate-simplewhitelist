@@ -77,10 +77,23 @@ func RegisterCommands(p *proxy.Proxy, mgr *Manager) {
 		return res
 	}
 
+	hasPerm := func(src command.Source, required ...string) bool {
+		if src.HasPermission("simplewhitelist.admin") || src.HasPermission("simplewhitelist.*") || src.HasPermission("*") {
+			return true
+		}
+		for _, r := range required {
+			if src.HasPermission(r) {
+				return true
+			}
+		}
+		return false
+	}
+
 	buildWhitelistCmd := func(alias string) brigodier.LiteralNodeBuilder {
 		return brigodier.Literal(alias).
 			Requires(command.Requires(func(c *command.RequiresContext) bool {
-				return c.Source.HasPermission("simplewhitelist.admin")
+				return hasPerm(c.Source, "simplewhitelist.use", "simplewhitelist.list", "simplewhitelist.add",
+					"simplewhitelist.remove", "simplewhitelist.toggle", "simplewhitelist.reload")
 			})).
 			Executes(command.Command(func(cmdCtx *command.Context) error {
 				st := mgr.WhitelistState()
@@ -99,6 +112,9 @@ func RegisterCommands(p *proxy.Proxy, mgr *Manager) {
 				})
 			})).
 			Then(brigodier.Literal("on").
+				Requires(command.Requires(func(c *command.RequiresContext) bool {
+					return hasPerm(c.Source, "simplewhitelist.toggle")
+				})).
 				Executes(command.Command(func(cmdCtx *command.Context) error {
 					if err := mgr.SetWhitelistEnabled(true); err != nil {
 						return cmdCtx.Source.SendMessage(&c.Text{Content: fmt.Sprintf("§c[SimpleWhitelist] Failed to enable: %v", err)})
@@ -107,6 +123,9 @@ func RegisterCommands(p *proxy.Proxy, mgr *Manager) {
 				})),
 			).
 			Then(brigodier.Literal("enable").
+				Requires(command.Requires(func(c *command.RequiresContext) bool {
+					return hasPerm(c.Source, "simplewhitelist.toggle")
+				})).
 				Executes(command.Command(func(cmdCtx *command.Context) error {
 					if err := mgr.SetWhitelistEnabled(true); err != nil {
 						return cmdCtx.Source.SendMessage(&c.Text{Content: fmt.Sprintf("§c[SimpleWhitelist] Failed to enable: %v", err)})
@@ -115,6 +134,9 @@ func RegisterCommands(p *proxy.Proxy, mgr *Manager) {
 				})),
 			).
 			Then(brigodier.Literal("off").
+				Requires(command.Requires(func(c *command.RequiresContext) bool {
+					return hasPerm(c.Source, "simplewhitelist.toggle")
+				})).
 				Executes(command.Command(func(cmdCtx *command.Context) error {
 					if err := mgr.SetWhitelistEnabled(false); err != nil {
 						return cmdCtx.Source.SendMessage(&c.Text{Content: fmt.Sprintf("§c[SimpleWhitelist] Failed to disable: %v", err)})
@@ -123,6 +145,9 @@ func RegisterCommands(p *proxy.Proxy, mgr *Manager) {
 				})),
 			).
 			Then(brigodier.Literal("disable").
+				Requires(command.Requires(func(c *command.RequiresContext) bool {
+					return hasPerm(c.Source, "simplewhitelist.toggle")
+				})).
 				Executes(command.Command(func(cmdCtx *command.Context) error {
 					if err := mgr.SetWhitelistEnabled(false); err != nil {
 						return cmdCtx.Source.SendMessage(&c.Text{Content: fmt.Sprintf("§c[SimpleWhitelist] Failed to disable: %v", err)})
@@ -131,6 +156,9 @@ func RegisterCommands(p *proxy.Proxy, mgr *Manager) {
 				})),
 			).
 			Then(brigodier.Literal("reload").
+				Requires(command.Requires(func(c *command.RequiresContext) bool {
+					return hasPerm(c.Source, "simplewhitelist.reload")
+				})).
 				Executes(command.Command(func(cmdCtx *command.Context) error {
 					if err := mgr.Load(); err != nil {
 						return cmdCtx.Source.SendMessage(&c.Text{Content: fmt.Sprintf("§c[SimpleWhitelist] Reload failed: %v", err)})
@@ -139,6 +167,9 @@ func RegisterCommands(p *proxy.Proxy, mgr *Manager) {
 				})),
 			).
 			Then(brigodier.Literal("list").
+				Requires(command.Requires(func(c *command.RequiresContext) bool {
+					return hasPerm(c.Source, "simplewhitelist.list")
+				})).
 				Executes(command.Command(func(cmdCtx *command.Context) error {
 					st := mgr.WhitelistState()
 					if st == nil {
@@ -160,6 +191,9 @@ func RegisterCommands(p *proxy.Proxy, mgr *Manager) {
 				})),
 			).
 			Then(brigodier.Literal("add").
+				Requires(command.Requires(func(c *command.RequiresContext) bool {
+					return hasPerm(c.Source, "simplewhitelist.add")
+				})).
 				Then(brigodier.Argument("target", brigodier.String).
 					Suggests(suggestCandidates(onlinePlayerCandidates)).
 					Executes(command.Command(func(cmdCtx *command.Context) error {
@@ -176,6 +210,9 @@ func RegisterCommands(p *proxy.Proxy, mgr *Manager) {
 				),
 			).
 			Then(brigodier.Literal("remove").
+				Requires(command.Requires(func(c *command.RequiresContext) bool {
+					return hasPerm(c.Source, "simplewhitelist.remove")
+				})).
 				Then(brigodier.Argument("target", brigodier.String).
 					Suggests(suggestCandidates(whitelistEntriesCandidates)).
 					Executes(command.Command(func(cmdCtx *command.Context) error {
