@@ -1,5 +1,8 @@
 # Gate Simple Whitelist
 
+[![Go Reference](https://pkg.go.dev/badge/github.com/andreisugu/gate-simplewhitelist.svg)](https://pkg.go.dev/github.com/andreisugu/gate-simplewhitelist)
+[![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+
 An ultra-lightweight, high-performance whitelist plugin for the [Gate](https://github.com/minekube/gate) Minecraft proxy.
 
 ## Features
@@ -17,7 +20,7 @@ An ultra-lightweight, high-performance whitelist plugin for the [Gate](https://g
 ### 1. Add the package to your Gate proxy
 
 ```bash
-go get github.com/andreisugu/gate-simplewhitelist
+go get github.com/username/gate-simplewhitelist
 ```
 
 ### 2. Register the plugin in your `main.go` / `gate.go`
@@ -26,7 +29,7 @@ go get github.com/andreisugu/gate-simplewhitelist
 package main
 
 import (
-	"github.com/andreisugu/gate-simplewhitelist"
+	"github.com/username/gate-simplewhitelist"
 	"go.minekube.com/gate/cmd/gate"
 	"go.minekube.com/gate/pkg/edition/java/proxy"
 )
@@ -82,6 +85,18 @@ ips = [
 
 ---
 
-## License
+## Pelican / Pterodactyl Panel Integration
 
-[MIT](LICENSE)
+If using the Gate Pelican Egg, add this package to your `GATE_PLUGINS` setting:
+
+```text
+github.com/username/gate-simplewhitelist
+```
+
+Pelican will automatically download, bundle, and compile the plugin directly into your proxy binary!
+
+---
+
+## 📄 License
+
+[Apache 2.0](LICENSE) © Andrei

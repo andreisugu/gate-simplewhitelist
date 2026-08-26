@@ -2,11 +2,10 @@ package simplewhitelist
 
 import (
 	"net"
-	"strings"
-	"sync/atomic"
+	"os"
+	"path/filepath"
 	"testing"
 
-	c "go.minekube.com/common/minecraft/component"
 	"go.minekube.com/gate/pkg/edition/java/proxy"
 	"go.minekube.com/gate/pkg/util/uuid"
 )
@@ -20,104 +19,132 @@ func (a *mockAddr) String() string  { return a.addr }
 
 type mockPlayer struct {
 	proxy.Player
-	id         uuid.UUID
-	username   string
-	remoteAddr net.Addr
+	id          uuid.UUID
+	username    string
+	remoteAddr  net.Addr
+	permissions map[string]bool
 }
 
 func newMockPlayer(username string, id uuid.UUID, ip string) *mockPlayer {
 	return &mockPlayer{
-		id:         id,
-		username:   username,
-		remoteAddr: &mockAddr{addr: ip},
+		id:          id,
+		username:    username,
+		remoteAddr:  &mockAddr{addr: ip},
+		permissions: make(map[string]bool),
 	}
 }
 
-func (m *mockPlayer) ID() uuid.UUID         { return m.id }
-func (m *mockPlayer) Username() string     { return m.username }
-func (m *mockPlayer) RemoteAddr() net.Addr { return m.remoteAddr }
+func (m *mockPlayer) ID() uuid.UUID               { return m.id }
+func (m *mockPlayer) Username() string           { return m.username }
+func (m *mockPlayer) RemoteAddr() net.Addr       { return m.remoteAddr }
+func (m *mockPlayer) HasPermission(p string) bool { return m.permissions[p] }
 
-func TestSimpleWhitelistEvaluation(t *testing.T) {
-	nicks := map[string]struct{}{
-		"steve": {},
-		"alex":  {},
-	}
-	uuids := map[string]struct{}{
-		"00000000-0000-0000-0000-000000000001": {},
-	}
-	ips := []net.IP{net.ParseIP("192.168.1.50")}
-	_, cidr, _ := net.ParseCIDR("10.0.0.0/24")
-	ipNets := []*net.IPNet{cidr}
-
-	var state atomic.Pointer[whitelistState]
-	state.Store(&whitelistState{
-		enabled:    true,
-		nicks:      nicks,
-		uuids:      uuids,
-		ips:        ips,
-		ipNets:     ipNets,
-		kickReason: &c.Text{Content: "Denied"},
-	})
-
-	isAllowed := func(p proxy.Player) bool {
-		st := state.Load()
-		if !st.enabled {
-			return true
-		}
-		if _, ok := st.nicks[strings.ToLower(p.Username())]; ok {
-			return true
-		}
-		if _, ok := st.uuids[strings.ToLower(p.ID().String())]; ok {
-			return true
-		}
-		if len(st.ips) > 0 || len(st.ipNets) > 0 {
-			if addr := p.RemoteAddr(); addr != nil {
-				host := addr.String()
-				if h, _, err := net.SplitHostPort(host); err == nil {
-					host = h
-				}
-				if pip := net.ParseIP(host); pip != nil {
-					for _, ip := range st.ips {
-						if ip.Equal(pip) {
-							return true
-						}
-					}
-					for _, netBlock := range st.ipNets {
-						if netBlock.Contains(pip) {
-							return true
-						}
-					}
-				}
-			}
-		}
-		return false
+func TestTargetDetection(t *testing.T) {
+	// Nick
+	tt, can := DetectTargetType("Steve")
+	if tt != TargetNick || can != "Steve" {
+		t.Fatalf("Expected Steve as TargetNick, got %v (%s)", tt, can)
 	}
 
-	testUUID1, _ := uuid.Parse("00000000-0000-0000-0000-000000000001")
-	randomUUID, _ := uuid.Parse("00000000-0000-0000-0000-000000000099")
-
-	// Nick match
-	if !isAllowed(newMockPlayer("Steve", randomUUID, "1.1.1.1:1234")) {
-		t.Errorf("Expected Steve allowed by nick")
+	// UUID
+	validUUID := "069a79f4-44e9-4726-a5be-fca90e38aaf5"
+	tt, can = DetectTargetType(validUUID)
+	if tt != TargetUUID || can != validUUID {
+		t.Fatalf("Expected TargetUUID, got %v (%s)", tt, can)
 	}
 
-	// UUID match
-	if !isAllowed(newMockPlayer("CustomName", testUUID1, "1.1.1.1:1234")) {
-		t.Errorf("Expected CustomName allowed by UUID")
+	// IP
+	tt, can = DetectTargetType("192.168.1.100")
+	if tt != TargetIP || can != "192.168.1.100" {
+		t.Fatalf("Expected TargetIP, got %v (%s)", tt, can)
 	}
 
-	// Exact IP match
-	if !isAllowed(newMockPlayer("Stranger", randomUUID, "192.168.1.50:5555")) {
-		t.Errorf("Expected Stranger allowed by exact IP")
+	// CIDR
+	tt, can = DetectTargetType("10.0.0.0/24")
+	if tt != TargetCIDR || can != "10.0.0.0/24" {
+		t.Fatalf("Expected TargetCIDR, got %v (%s)", tt, can)
+	}
+}
+
+func TestManagerWhitelistPersistenceAndEvaluation(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "simplewhitelist_test_*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	mgr := NewManager(tmpDir)
+	if err := mgr.Load(); err != nil {
+		t.Fatalf("Failed to initialize manager: %v", err)
 	}
 
-	// CIDR match
-	if !isAllowed(newMockPlayer("Stranger2", randomUUID, "10.0.0.99:5555")) {
-		t.Errorf("Expected Stranger2 allowed by CIDR range")
+	testUUID, _ := uuid.Parse("00000000-0000-0000-0000-000000000001")
+	otherUUID, _ := uuid.Parse("00000000-0000-0000-0000-000000000002")
+
+	// 1. In-game Add
+	_, _, added, err := mgr.AddWhitelist("Notch")
+	if err != nil || !added {
+		t.Fatalf("Failed to add Notch to whitelist: %v", err)
 	}
 
-	// Unlisted player
-	if isAllowed(newMockPlayer("Hacker", randomUUID, "123.45.67.89:5555")) {
-		t.Errorf("Expected Hacker denied")
+	_, _, added, err = mgr.AddWhitelist(testUUID.String())
+	if err != nil || !added {
+		t.Fatalf("Failed to add UUID to whitelist: %v", err)
+	}
+
+	_, _, added, err = mgr.AddWhitelist("192.168.1.50")
+	if err != nil || !added {
+		t.Fatalf("Failed to add IP to whitelist: %v", err)
+	}
+
+	// Duplicate add returns added=false
+	_, _, added, err = mgr.AddWhitelist("Notch")
+	if err != nil || added {
+		t.Fatalf("Expected duplicate Notch add to return false, got %v", added)
+	}
+
+	// 2. Verify Whitelist evaluation
+	pNotch := newMockPlayer("Notch", otherUUID, "1.1.1.1:1234")
+	if ok, _ := mgr.IsWhitelisted(pNotch.Username(), pNotch.ID(), pNotch.RemoteAddr()); !ok {
+		t.Errorf("Expected Notch whitelisted")
+	}
+
+	pUUID := newMockPlayer("Stranger", testUUID, "1.1.1.1:1234")
+	if ok, _ := mgr.IsWhitelisted(pUUID.Username(), pUUID.ID(), pUUID.RemoteAddr()); !ok {
+		t.Errorf("Expected testUUID whitelisted")
+	}
+
+	pIP := newMockPlayer("Stranger2", otherUUID, "192.168.1.50:5555")
+	if ok, _ := mgr.IsWhitelisted(pIP.Username(), pIP.ID(), pIP.RemoteAddr()); !ok {
+		t.Errorf("Expected 192.168.1.50 whitelisted")
+	}
+
+	pUnlisted := newMockPlayer("Hacker", otherUUID, "99.99.99.99:5555")
+	if ok, _ := mgr.IsWhitelisted(pUnlisted.Username(), pUnlisted.ID(), pUnlisted.RemoteAddr()); ok {
+		t.Errorf("Expected Hacker blocked by whitelist")
+	}
+
+	// 3. Verify File Persistence across Manager reload
+	mgr2 := NewManager(tmpDir)
+	if err := mgr2.Load(); err != nil {
+		t.Fatalf("Failed to reload from disk: %v", err)
+	}
+
+	if ok, _ := mgr2.IsWhitelisted(pNotch.Username(), pNotch.ID(), pNotch.RemoteAddr()); !ok {
+		t.Errorf("Expected Notch whitelisted after file reload")
+	}
+
+	// 4. Test Remove
+	_, _, removed, err := mgr2.RemoveWhitelist("Notch")
+	if err != nil || !removed {
+		t.Fatalf("Expected Notch removed: %v", err)
+	}
+	if ok, _ := mgr2.IsWhitelisted(pNotch.Username(), pNotch.ID(), pNotch.RemoteAddr()); ok {
+		t.Errorf("Expected Notch blocked after removal")
+	}
+
+	// Verify file exists
+	if _, err := os.Stat(filepath.Join(tmpDir, "whitelist.toml")); os.IsNotExist(err) {
+		t.Errorf("whitelist.toml does not exist")
 	}
 }
