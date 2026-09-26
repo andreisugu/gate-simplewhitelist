@@ -31,6 +31,11 @@ var Plugin = proxy.Plugin{
 			if !pl.HasPermission("simplewhitelist.bypass") {
 				if whitelisted, reason := mgr.IsWhitelisted(pl.Username(), pl.ID(), pl.RemoteAddr()); !whitelisted {
 					e.Deny(reason)
+					rAddr := ""
+					if pl.RemoteAddr() != nil {
+						rAddr = pl.RemoteAddr().String()
+					}
+					log.Info("Unwhitelisted player rejected", "player", pl.Username(), "remoteAddr", rAddr)
 					return
 				}
 			}
