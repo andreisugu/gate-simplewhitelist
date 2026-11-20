@@ -200,11 +200,12 @@ func (m *Manager) SetWhitelistEnabled(enabled bool) error {
 
 	st := m.whitelistState.Load()
 	cfg := &ListConfig{
-		Enabled:     enabled,
-		KickMessage: st.KickMessage,
-		Nicks:       st.RawNicks,
-		UUIDs:       st.RawUUIDs,
-		IPs:         st.RawIPs,
+		Enabled:        enabled,
+		KickMessage:    st.KickMessage,
+		RequireIPMatch: st.RequireIPMatch,
+		Nicks:          st.RawNicks,
+		UUIDs:          st.RawUUIDs,
+		IPs:            st.RawIPs,
 	}
 	if err := m.saveFileLocked(m.whitelistPath, cfg); err != nil {
 		return err
@@ -221,11 +222,12 @@ func (m *Manager) AddWhitelist(rawTarget string) (TargetType, string, bool, erro
 	tType, canonical := DetectTargetType(rawTarget)
 	st := m.whitelistState.Load()
 	cfg := &ListConfig{
-		Enabled:     st.Enabled,
-		KickMessage: st.KickMessage,
-		Nicks:       append([]string{}, st.RawNicks...),
-		UUIDs:       append([]string{}, st.RawUUIDs...),
-		IPs:         append([]string{}, st.RawIPs...),
+		Enabled:        st.Enabled,
+		KickMessage:    st.KickMessage,
+		RequireIPMatch: st.RequireIPMatch,
+		Nicks:          append([]string{}, st.RawNicks...),
+		UUIDs:          append([]string{}, st.RawUUIDs...),
+		IPs:            append([]string{}, st.RawIPs...),
 	}
 
 	alreadyExists := false
@@ -281,11 +283,12 @@ func (m *Manager) RemoveWhitelist(rawTarget string) (TargetType, string, bool, e
 	tType, canonical := DetectTargetType(rawTarget)
 	st := m.whitelistState.Load()
 	cfg := &ListConfig{
-		Enabled:     st.Enabled,
-		KickMessage: st.KickMessage,
-		Nicks:       make([]string, 0, len(st.RawNicks)),
-		UUIDs:       make([]string, 0, len(st.RawUUIDs)),
-		IPs:         make([]string, 0, len(st.RawIPs)),
+		Enabled:        st.Enabled,
+		KickMessage:    st.KickMessage,
+		RequireIPMatch: st.RequireIPMatch,
+		Nicks:          make([]string, 0, len(st.RawNicks)),
+		UUIDs:          make([]string, 0, len(st.RawUUIDs)),
+		IPs:            make([]string, 0, len(st.RawIPs)),
 	}
 
 	removed := false
@@ -357,9 +360,9 @@ func (m *Manager) IsWhitelisted(username string, id uuid.UUID, remoteAddr net.Ad
 	}
 
 	// require_ip_match turns the legacy OR semantics into an AND for the
-	// configured identity and source IP. An allowed host cannot join with an
-	// unlisted name, and a listed name cannot join from an unlisted host.
-	if st.RequireIPMatch && (len(st.IPs) > 0 || len(st.IPNets) > 0) {
+	// configured identity and source IP. Gate on configured entries, not
+	// successfully parsed ones: malformed configured IPs must fail closed.
+	if st.RequireIPMatch && len(st.RawIPs) > 0 {
 		if (nickMatch || uuidMatch) && ipMatch {
 			return true, nil
 		}
