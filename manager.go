@@ -27,25 +27,27 @@ const (
 
 // ListConfig represents the TOML file structure for whitelist.
 type ListConfig struct {
-	Enabled     bool     `toml:"enabled"`
-	KickMessage string   `toml:"kick_message"`
-	Nicks       []string `toml:"nicks"`
-	UUIDs       []string `toml:"uuids"`
-	IPs         []string `toml:"ips"`
+	Enabled        bool     `toml:"enabled"`
+	KickMessage    string   `toml:"kick_message"`
+	RequireIPMatch bool     `toml:"require_ip_match"`
+	Nicks          []string `toml:"nicks"`
+	UUIDs          []string `toml:"uuids"`
+	IPs            []string `toml:"ips"`
 }
 
 // ListState holds parsed, fast O(1) in-memory structures for login evaluations.
 type ListState struct {
-	Enabled     bool
-	KickMessage string
-	Nicks       map[string]struct{}
-	UUIDs       map[string]struct{}
-	IPs         []net.IP
-	IPNets      []*net.IPNet
-	RawNicks    []string
-	RawUUIDs    []string
-	RawIPs      []string
-	KickReason  c.Component
+	Enabled        bool
+	KickMessage    string
+	RequireIPMatch bool
+	Nicks          map[string]struct{}
+	UUIDs          map[string]struct{}
+	IPs            []net.IP
+	IPNets         []*net.IPNet
+	RawNicks       []string
+	RawUUIDs       []string
+	RawIPs         []string
+	KickReason     c.Component
 }
 
 const defaultWhitelistTemplate = `# =============================================================================
@@ -155,16 +157,17 @@ func (m *Manager) compileState(cfg *ListConfig) *ListState {
 	}
 
 	return &ListState{
-		Enabled:     cfg.Enabled,
-		KickMessage: cfg.KickMessage,
-		Nicks:       nickMap,
-		UUIDs:       uuidMap,
-		IPs:         parsedIPs,
-		IPNets:      parsedNets,
-		RawNicks:    rawNicks,
-		RawUUIDs:    rawUUIDs,
-		RawIPs:      rawIPs,
-		KickReason:  kickComp,
+		Enabled:        cfg.Enabled,
+		KickMessage:    cfg.KickMessage,
+		RequireIPMatch: cfg.RequireIPMatch,
+		Nicks:          nickMap,
+		UUIDs:          uuidMap,
+		IPs:            parsedIPs,
+		IPNets:         parsedNets,
+		RawNicks:       rawNicks,
+		RawUUIDs:       rawUUIDs,
+		RawIPs:         rawIPs,
+		KickReason:     kickComp,
 	}
 }
 
@@ -326,17 +329,10 @@ func (m *Manager) IsWhitelisted(username string, id uuid.UUID, remoteAddr net.Ad
 		return true, nil
 	}
 
-	// 1. Nick check
-	if _, ok := st.Nicks[strings.ToLower(username)]; ok {
-		return true, nil
-	}
+	_, nickMatch := st.Nicks[strings.ToLower(username)]
+	_, uuidMatch := st.UUIDs[strings.ToLower(id.String())]
 
-	// 2. UUID check
-	if _, ok := st.UUIDs[strings.ToLower(id.String())]; ok {
-		return true, nil
-	}
-
-	// 3. IP / Subnet check
+	ipMatch := false
 	if remoteAddr != nil && (len(st.IPs) > 0 || len(st.IPNets) > 0) {
 		host := remoteAddr.String()
 		if h, _, err := net.SplitHostPort(host); err == nil {
@@ -345,17 +341,34 @@ func (m *Manager) IsWhitelisted(username string, id uuid.UUID, remoteAddr net.Ad
 		if pip := net.ParseIP(host); pip != nil {
 			for _, ip := range st.IPs {
 				if ip.Equal(pip) {
-					return true, nil
+					ipMatch = true
+					break
 				}
 			}
-			for _, netBlock := range st.IPNets {
-				if netBlock.Contains(pip) {
-					return true, nil
+			if !ipMatch {
+				for _, netBlock := range st.IPNets {
+					if netBlock.Contains(pip) {
+						ipMatch = true
+						break
+					}
 				}
 			}
 		}
 	}
 
+	// require_ip_match turns the legacy OR semantics into an AND for the
+	// configured identity and source IP. An allowed host cannot join with an
+	// unlisted name, and a listed name cannot join from an unlisted host.
+	if st.RequireIPMatch && (len(st.IPs) > 0 || len(st.IPNets) > 0) {
+		if (nickMatch || uuidMatch) && ipMatch {
+			return true, nil
+		}
+		return false, st.KickReason
+	}
+
+	if nickMatch || uuidMatch || ipMatch {
+		return true, nil
+	}
 	return false, st.KickReason
 }
 

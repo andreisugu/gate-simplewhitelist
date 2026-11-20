@@ -35,8 +35,8 @@ func newMockPlayer(username string, id uuid.UUID, ip string) *mockPlayer {
 }
 
 func (m *mockPlayer) ID() uuid.UUID               { return m.id }
-func (m *mockPlayer) Username() string           { return m.username }
-func (m *mockPlayer) RemoteAddr() net.Addr       { return m.remoteAddr }
+func (m *mockPlayer) Username() string            { return m.username }
+func (m *mockPlayer) RemoteAddr() net.Addr        { return m.remoteAddr }
 func (m *mockPlayer) HasPermission(p string) bool { return m.permissions[p] }
 
 func TestTargetDetection(t *testing.T) {
@@ -146,5 +146,45 @@ func TestManagerWhitelistPersistenceAndEvaluation(t *testing.T) {
 	// Verify file exists
 	if _, err := os.Stat(filepath.Join(tmpDir, "whitelist.toml")); os.IsNotExist(err) {
 		t.Errorf("whitelist.toml does not exist")
+	}
+}
+
+func TestRequireIPMatchUsesAndSemantics(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "simplewhitelist_and_test_*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	cfg := `enabled = true
+require_ip_match = true
+kick_message = "not authorized"
+nicks = ["QA_Resident"]
+uuids = []
+ips = ["100.126.65.114/32"]
+`
+	if err := os.WriteFile(filepath.Join(tmpDir, "whitelist.toml"), []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	mgr := NewManager(tmpDir)
+	if err := mgr.Load(); err != nil {
+		t.Fatalf("Failed to load AND-mode whitelist: %v", err)
+	}
+
+	id, _ := uuid.Parse("00000000-0000-0000-0000-000000000003")
+	allowed := newMockPlayer("QA_Resident", id, "100.126.65.114:1234")
+	if ok, _ := mgr.IsWhitelisted(allowed.Username(), allowed.ID(), allowed.RemoteAddr()); !ok {
+		t.Errorf("Expected listed name from listed IP to be allowed")
+	}
+
+	wrongName := newMockPlayer("NotAllowed01", id, "100.126.65.114:1234")
+	if ok, _ := mgr.IsWhitelisted(wrongName.Username(), wrongName.ID(), wrongName.RemoteAddr()); ok {
+		t.Errorf("Expected unlisted name from listed IP to be denied")
+	}
+
+	wrongIP := newMockPlayer("QA_Resident", id, "100.94.79.89:1234")
+	if ok, _ := mgr.IsWhitelisted(wrongIP.Username(), wrongIP.ID(), wrongIP.RemoteAddr()); ok {
+		t.Errorf("Expected listed name from unlisted IP to be denied")
 	}
 }
