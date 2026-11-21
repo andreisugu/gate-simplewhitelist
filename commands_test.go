@@ -2,36 +2,11 @@ package simplewhitelist
 
 import (
 	"os"
-	"strings"
 	"testing"
 
 	"go.minekube.com/brigodier"
-	c "go.minekube.com/common/minecraft/component"
 	"go.minekube.com/gate/pkg/util/uuid"
 )
-
-type mockCommandSource struct {
-	messages    []string
-	permissions map[string]bool
-}
-
-func (m *mockCommandSource) SendMessage(msg c.Component) error {
-	var b strings.Builder
-	if t, ok := msg.(*c.Text); ok {
-		b.WriteString(t.Content)
-		for _, child := range t.Extra {
-			if tc, ok := child.(*c.Text); ok {
-				b.WriteString(tc.Content)
-			}
-		}
-	}
-	m.messages = append(m.messages, b.String())
-	return nil
-}
-
-func (m *mockCommandSource) HasPermission(permission string) bool {
-	return m.permissions[permission] || m.permissions["*"]
-}
 
 func TestCommandsIntegration(t *testing.T) {
 	tmpDir, err := os.MkdirTemp("", "simplewhitelist_cmd_test_*")

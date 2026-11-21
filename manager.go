@@ -151,8 +151,8 @@ func (m *Manager) compileState(cfg *ListConfig) *ListState {
 		}
 	}
 
-	kickComp, _ := m.legacyCodec.Unmarshal([]byte(cfg.KickMessage))
-	if kickComp == nil {
+	kickComp, kickErr := m.legacyCodec.Unmarshal([]byte(cfg.KickMessage))
+	if kickErr != nil {
 		kickComp = &c.Text{Content: cfg.KickMessage}
 	}
 
